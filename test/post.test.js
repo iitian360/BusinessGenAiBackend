@@ -2,37 +2,47 @@ import request from 'supertest';
 import app from '../app.js';
 import { expect } from 'chai';
 import fs from 'fs';
+import dotenv from 'dotenv';
 import path from 'path';
 
-// Helper to generate unique emails
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: '.env.test' });
+} else {
+  dotenv.config();
+}
+
+
 function uniqueEmail(prefix = 'user') {
   return `${prefix}${Date.now()}@example.com`;
 }
 
+let agent;
+
 describe('Post API', function () {
-  let token;
   let postId;
   let userEmail = uniqueEmail('postadmin');
 
   before(async function () {
-    // Register and login an admin user to get a token
-    await request(app)
+    agent = request.agent(app); // ✅ persistent session
+
+    // Register and login an admin user
+    await agent
       .post('/api/users/register')
       .send({ name: 'Post Admin', email: userEmail, password: 'TestPassword123', role: 'admin' });
-    const res = await request(app)
+
+    await agent
       .post('/api/users/login')
       .send({ email: userEmail, password: 'TestPassword123' });
-    token = res.body.accessToken;
   });
 
   it('should create a new post', async function () {
-    const res = await request(app)
+    const res = await agent
       .post('/api/posts/create')
-      .set('Authorization', `Bearer ${token}`)
       .send({
         title: 'Test Post',
         description: 'This is a test post',
       });
+
     expect(res.statusCode).to.be.oneOf([201, 200]);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('post');
@@ -40,16 +50,16 @@ describe('Post API', function () {
   });
 
   it('should create a new post with an image', async function () {
-    // Use a sample image from uploads or fallback to a static image
     const uploadsDir = path.join(process.cwd(), 'uploads');
     const files = fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir) : [];
     const imagePath = files.length > 0 ? path.join(uploadsDir, files[0]) : path.join(process.cwd(), 'sample.png');
-    const res = await request(app)
+
+    const res = await agent
       .post('/api/posts/create')
-      .set('Authorization', `Bearer ${token}`)
       .field('title', 'Test Post With Image')
       .field('description', 'This is a test post with image')
       .attach('image', imagePath);
+
     expect(res.statusCode).to.be.oneOf([201, 200]);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('post');
@@ -57,9 +67,7 @@ describe('Post API', function () {
   });
 
   it('should get all posts', async function () {
-    const res = await request(app)
-      .get('/api/posts/')
-      .set('Authorization', `Bearer ${token}`);
+    const res = await agent.get('/api/posts/');
     expect(res.statusCode).to.equal(200);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('posts');
@@ -67,9 +75,7 @@ describe('Post API', function () {
   });
 
   it('should get a post by ID', async function () {
-    const res = await request(app)
-      .get(`/api/posts/${postId}`)
-      .set('Authorization', `Bearer ${token}`);
+    const res = await agent.get(`/api/posts/${postId}`);
     expect(res.statusCode).to.equal(200);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('post');
@@ -77,9 +83,7 @@ describe('Post API', function () {
   });
 
   it('should like a post', async function () {
-    const res = await request(app)
-      .put(`/api/posts/${postId}/like`)
-      .set('Authorization', `Bearer ${token}`);
+    const res = await agent.put(`/api/posts/${postId}/like`);
     expect(res.statusCode).to.equal(200);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('liked');
@@ -87,10 +91,10 @@ describe('Post API', function () {
   });
 
   it('should update a post', async function () {
-    const res = await request(app)
+    const res = await agent
       .put(`/api/posts/${postId}`)
-      .set('Authorization', `Bearer ${token}`)
       .send({ title: 'Updated Title', description: 'Updated description' });
+
     expect(res.statusCode).to.be.oneOf([200, 201]);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('post');
@@ -98,9 +102,7 @@ describe('Post API', function () {
   });
 
   it('should delete a post', async function () {
-    const res = await request(app)
-      .delete(`/api/posts/${postId}`)
-      .set('Authorization', `Bearer ${token}`);
+    const res = await agent.delete(`/api/posts/${postId}`);
     expect(res.statusCode).to.equal(200);
     expect(res.body).to.have.property('success', true);
     expect(res.body).to.have.property('message');
